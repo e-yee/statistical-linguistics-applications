@@ -132,8 +132,10 @@ class XMLToCSVConverter:
                     
                     sentence_id = sentence_entry.get('id')
                     for word_entry in sentence_entry:
-                        word = word_entry.text.split()
-                        sentence.append("#".join(word))
+                        sentence.append(
+                            f'|{word_entry.text}|' if word_entry.tag == 'instance'
+                            else word_entry.text
+                        )
                         lemma.append(
                             f'|{word_entry.get("lemma")}|' if word_entry.tag == 'instance'
                             else word_entry.get('lemma')
@@ -222,7 +224,7 @@ def main():
     try:
         pass
         # XMLToCSVConverter.convert('hoang_phe')
-        # XMLToCSVConverter.convert('semcor_omsti')
+        XMLToCSVConverter.convert('semcor_omsti')
     except ValueError as e:
         print(e)
     
