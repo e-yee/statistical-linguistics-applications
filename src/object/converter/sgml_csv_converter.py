@@ -46,7 +46,10 @@ class SGMLToCSVConverter:
                     })
             
             fieldnames = [
-                'DocId', 'SentencePairId', 'EnglishSentence', 'VietnameseSentence'
+                'DocId', 
+                'SentencePairId',
+                'EnglishSentence',
+                'VietnameseSentence'
             ]
             output_path = EVBCORPUS_DIR / 'output' / 'evb_corpus.csv'
             
