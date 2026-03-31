@@ -1,3 +1,4 @@
+import re
 import csv
 import xml.etree.ElementTree as ET
 
@@ -46,8 +47,12 @@ class XMLToCSVConverter:
                 'chm': 'chuyên môn',
                 'id': 'ít dùng',
                 'ng1': 'nghĩa 1',
-                'ng2': 'nghĩa 2'
+                'ng2': 'nghĩa 2',
+                'cũ': 'cũ',
+                'thường viết hoa': 'thường viết hoa',
+                'có trước': 'có trước'
             }
+            support_attrib_list = list(support_attrib_map.keys())
 
             words = []
             
@@ -60,14 +65,23 @@ class XMLToCSVConverter:
                 for body_entry in body_entries:
                     meaning_entry = body_entry.find('MEANING')
                     support_attrib = None
-
+                    meaning = None
+                    
                     if meaning_entry is not None:
                         meaning = ''.join(meaning_entry.itertext()).strip()
-                        support_attrib_elem = meaning_entry.find('ABBR')
+                        tags = re.findall(r"\[(.*?)\]", meaning)
                         
-                        if support_attrib_elem is not None:
-                            support_attrib = support_attrib_map[support_attrib_elem.text.strip()]
-                            meaning = meaning.replace(f'[{support_attrib}]', '').strip()
+                        for tag in tags:
+                            splits = [split.replace(',', '') for split in tag.split(' ')]
+                            if splits[0] in support_attrib_list:
+                                support_attrib = ','.join([
+                                    support_attrib_map[split] for split in splits 
+                                    if split in support_attrib_list
+                                ])
+                                meaning = meaning.replace(f"[{tag}] ", '')
+
+                        if len(body_entries) > 1:
+                            meaning = meaning[2:] 
                     
                     example = get_full_text(body_entry.find('EXAMPLE'))
                     reference = get_full_text(body_entry.find('REF'))
@@ -78,11 +92,7 @@ class XMLToCSVConverter:
                         words.append({
                             'Word': word,
                             'POS': p.strip(),
-                            'Meaning': (
-                                meaning[2:] 
-                                if len(body_entries) > 1
-                                else meaning
-                            ),       
+                            'Meaning': meaning,
                             'Example': example,
                             'Reference': reference,
                             'Synonym': synonym,
@@ -132,12 +142,16 @@ class XMLToCSVConverter:
                     
                     sentence_id = sentence_entry.get('id')
                     for word_entry in sentence_entry:
-                        sentence.append(
-                            f'|{word_entry.text}|' if word_entry.tag == 'instance'
-                            else word_entry.text
-                        )
+                        word = word_entry.text
+                        if len(word.split()) > 1:
+                            word = word.replace(" ", "_")
+                        
+                        if word_entry.tag == 'instance':
+                            word = f"<{word}>"
+                            
+                        sentence.append(word)
                         lemma.append(
-                            f'|{word_entry.get("lemma")}|' if word_entry.tag == 'instance'
+                            f'<{word_entry.get("lemma")}>' if word_entry.tag == 'instance'
                             else word_entry.get('lemma')
                         )
                         pos.append(word_entry.get('pos'))
@@ -186,7 +200,7 @@ class XMLToCSVConverter:
             sentence_csv = WSD_DIR / 'output' / 'sentences.csv'
             instance_csv = WSD_DIR / 'output' / 'instances.csv'
             with open(sentence_csv, 'w', newline='', encoding='utf-8') as f_sentence, \
-                 open(instance_csv, 'w', newline='', encoding='utf-8') as f_instance:
+                open(instance_csv, 'w', newline='', encoding='utf-8') as f_instance:
                 
                 sentence_writer = csv.DictWriter(
                     f_sentence, 
@@ -224,7 +238,7 @@ def main():
     try:
         pass
         # XMLToCSVConverter.convert('hoang_phe')
-        XMLToCSVConverter.convert('semcor_omsti')
+        # XMLToCSVConverter.convert('semcor_omsti')
     except ValueError as e:
         print(e)
     
