@@ -9,19 +9,15 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 ALIGNED_FILE = BASE_DIR / "" # Data path
 
 CACHE = {}
+MODEL = SentenceTransformer('sentence-transformers/LaBSE')
 
-def get_embeddings(
-    words: list[str], 
-    model
-) -> torch.Tensor:
+def get_embeddings(words: list[str]) -> torch.Tensor:
     """Get embeddings of words.
 
     Parameters
     ----------
     words : list[str]
         A list of word to be embedded.
-    model : Any
-        The embedding model.
 
     Returns
     -------
@@ -31,11 +27,10 @@ def get_embeddings(
     new_words = [w for w in words if w not in CACHE]
     
     if new_words:
-        embs = model.encode(new_words, convert_to_tensor=True)
-        for w, e in zip(new_words, embs):
-            CACHE[w] = e
+        embs = MODEL.encode(new_words, convert_to_tensor=True)
+        CACHE.update(dict(zip(new_words, embs)))
     
-    return torch.stack([CACHE[w] for w in words])
+    return torch.vstack([CACHE[w] for w in words])
 
 def load_data(path: Path) -> pl.DataFrame:
     """Load DataFrame.
@@ -65,23 +60,17 @@ def write_data(
     result : list[str]
         A list of values used to create or replace a column in the DataFrame.
     """
-    df = df.with_columns(
+    df.with_columns(
         pl.Series(name="ViEnAlignments", values=result)
     ).write_csv("not_sensed.csv")
-
     
-def refined_align(
-    df: pl.DataFrame, 
-    model
-) -> list[str]:
+def refined_align(df: pl.DataFrame) -> list[str]:
     """Refine the data alignments.
 
     Parameters
     ----------
     df : pl.DataFrame
         The DataFrame contained alignments.
-    model : Any
-        The embedding model.
 
     Returns
     -------
@@ -90,7 +79,7 @@ def refined_align(
     """
     lines = []
 
-    for i, row in tqdm(enumerate(df.iter_rows(named=True)), total=df.height):
+    for row in tqdm(df.iter_rows(named=True), total=df.height, desc="Refining..."):
         en_words = row["Sentence"].split()
         vi_words = row["Text"].split()
         pairs = row["ViEnAlignments"].split(";")
@@ -108,8 +97,8 @@ def refined_align(
             idx_map.append(j)
 
         if en_list:
-            emb_en = get_embeddings(en_list, model)
-            emb_vi = get_embeddings(vi_list, model)
+            emb_en = get_embeddings(en_list)
+            emb_vi = get_embeddings(vi_list)
 
             sims = util.cos_sim(emb_en, emb_vi).diagonal()
 
@@ -117,7 +106,14 @@ def refined_align(
                 if sim.item() < 0.67:
                     pairs[idx_map[k]] = f"{pairs[idx_map[k]].split('-')[0]}-null"
 
-        lines.append(";".join(pairs))
+        pairs = sorted(pairs, key=lambda x: int(x.split("-")[0]))
+        indices = torch.zeros(len(vi_words), dtype=int)
+        
+        for pair in pairs:
+            vi, en = pair.split("-")
+            indices[int(vi)] = int(en) + 1 if en is not "null" else 0
+            
+        lines.append(str(indices.tolist()))
     
     return lines
 
@@ -126,11 +122,8 @@ def main():
     df = load_data(ALIGNED_FILE)
     print(df)
     
-    # Load model    
-    model = SentenceTransformer('sentence-transformers/LaBSE')
-
     # Translate data
-    lines = refined_align(df, model)
+    lines = refined_align(df)
     
     # Write data
     write_data(df, lines)
